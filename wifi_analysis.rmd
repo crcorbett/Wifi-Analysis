@@ -1,0 +1,319 @@
+---
+title: "Assignment 2: Wifi Analysis"
+author: Cooper Corbett
+date: 8/6/20
+output: pagedown::html_paged
+---
+<style>
+body {
+font-size: 150%;
+line-height: 1.5;
+text-align: justify
+}
+</style>
+
+
+
+<h1>Report</h1>
+
+```{r, message = FALSE, error = FALSE}
+library("tidyr")
+library("readr")
+library("dplyr")
+library("kableExtra")
+library("ggplot2")
+library("ggthemr")
+
+study <- read.csv("scans/study_wifi_scan.csv", header = TRUE)
+study$Location <- "Study"
+bedroom <- read.csv("scans/bedroom_wifi_scan.csv", header = TRUE)
+bedroom$Location <- "Bedroom"
+backyard <- read.csv('scans/backyard_wifi_scan.csv', header = TRUE)
+backyard$Location <- "Backyard"
+front <- read.csv('scans/front_wifi_scan.csv', header = TRUE)
+front$Location <- "Frontyard"
+garage <- read.csv('scans/garage_wifi_scan.csv', header = TRUE)
+garage$Location <- "Garage"
+upstairs_back <- read.csv('scans/upstairsback_wifi_scan.csv', header = TRUE)
+upstairs_back$Location <- "Upstairs Back"
+upstairs_mid <- read.csv('scans/upstairsmid_wifi_scan.csv', header = TRUE)
+upstairs_mid$Location <- "Upstairs Mid"
+side <- read.csv('scans/side_wifi_scan.csv', header = TRUE)
+side$Location <- "Side"
+lounge_room <- read.csv('scans/loungeroom_wifi_scan.csv', header = TRUE)
+lounge_room$Location <- "Lounge Room"
+
+wifi_scan <- rbind(study,bedroom,backyard,front,garage,upstairs_back,upstairs_mid,side,lounge_room) %>% lapply(trimws) %>% as.data.frame()
+wifi_scan$RSSI <- as.numeric(as.character(wifi_scan$RSSI))
+wifi_scan$Channel <- as.factor(as.character(wifi_scan$Channel))
+wifi_scan$Width <- as.factor(as.character(wifi_scan$Width))
+wifi_scan$Location <- as.factor(as.character(wifi_scan$Location))
+wifi_scan$Type <- as.factor(as.character(wifi_scan$Type))
+wifi_scan$Auth <- as.factor(as.character(wifi_scan$Auth))
+wifi_scan$RSN.MCast <- as.factor(as.character(wifi_scan$RSN.MCast))
+wifi_scan$RSN.USCast <- as.factor(as.character(wifi_scan$RSN.USCast))
+
+
+
+networks <- wifi_scan %>% distinct(BSSID, .keep_all = TRUE) %>% arrange(-RSSI)#%>% filter(Network.Name != 'NA')
+networks.no_name <- wifi_scan %>% distinct(BSSID, .keep_all = TRUE) %>% filter(Length == 0)
+```
+
+<hr>
+<h2>Map</h2>
+<br></br>
+
+<p>
+
+</p>
+
+<br></br>
+```{r, fig.align = 'center'}
+knitr::include_graphics("map.jpg")
+
+location_key <- cbind(
+  Location = levels(wifi_scan$Location),
+  Key = c(3,2,7,4,6,9,8,1,5)
+) %>% as.data.frame()
+
+location_key %>% kable(row.names = F, caption = "Map - Location Key", full_width = F) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+<br></br>
+<hr>
+<h4>Scanned Networks</h4>
+<p>
+The Mac OSX in-built Wi-Fi Diagnostics scanning tool has been utilised to obtain the data found in this report. Network characteristics were gathered at each scanning location (see above Map), and saved to a CSV file for later processing. These CSV files required pre-processing and tidying prior to import into R - which required bespoke Python formatting scripts.
+
+The Top 15 networks discovered (determined by recorded signal strength) have been detailed in <i>Table A</i> below.
+</p>
+
+```{r, fig.align = 'center'}
+networks[1:15,] %>% select(colnames(networks)[1:11], Location, -Length, -Bytes) %>% kable(row.names = F, caption = "Table A: Top 15 BSSID by Signal Strength", full_width = FALSE) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))%>% kableExtra::scroll_box(width = "100%")
+```
+
+<br></br>
+<hr>
+<h4>Channel Occupancy</h4>
+
+<br></br>
+
+```{r, fig.align = 'center'}
+networks.channel.occupancy <- networks %>% group_by(Channel) %>% count()
+networks.channel.occupancy <- networks.channel.occupancy[order(-networks.channel.occupancy$n),]
+totals <- networks.channel.occupancy %>%
+    group_by(Channel) %>%
+    summarize(total = sum(n))
+#ggplot(data = networks.channel.occupancy) + geom_col(aes(x=reorder(Channel,-n), y=n, fill = Channel))
+
+networks.channel.occupancy.by_location <- networks %>% group_by(Channel, Location) %>% count()
+networks.channel.occupancy.by_location <- networks.channel.occupancy.by_location[order(-networks.channel.occupancy.by_location$n),]
+ggplot(data = networks.channel.occupancy.by_location) +
+  geom_col(aes(x=reorder(Channel, -n, sum), y=n, fill = Channel), position = "stack") +
+  geom_text(data=totals,aes(x=Channel, y=(total + 0.2), label = total)) +
+  no_legend() +
+  labs(title = "Channel Occupancy", subtitle = "Figure 1.a:") +
+  xlab("Channels") +
+  ylab("Total (n)") +
+  theme(plot.title = element_text(hjust = 0.5, margin = ggplot2::margin(b=20), face = "bold", size = 20), plot.caption = element_text(hjust = 0, size = 10, margin = ggplot2::margin(t=20)), axis.title = element_text(face = "bold"), legend.title = element_text(face = "bold"))
+```
+
+<br></br>
+
+```{r, fig.align = 'center'}
+networks.channel.occupancy.by_network <- networks %>% group_by(Channel, Network.Name) %>% count()
+networks.channel.occupancy.by_network <- networks.channel.occupancy.by_network[order(-networks.channel.occupancy.by_network$n),]
+ggplot(data = networks.channel.occupancy.by_network) +
+  geom_col(aes(x=reorder(Channel, -n, sum), y=n, fill = Network.Name), position = "stack") +
+  geom_text(data=totals,aes(x=Channel, y=(total + 0.2), label = total)) +
+  labs(title = "Channel Occupancy", subtitle = "Figure 1.b:") +
+  xlab("Channels") +
+  scale_fill_discrete(name = "Network Name") +
+  ylab("Total (n)") +
+  theme(plot.title = element_text(hjust = 0.5, margin = ggplot2::margin(b=20), face = "bold", size = 20), plot.caption = element_text(hjust = 0, size = 10, margin = ggplot2::margin(t=20)), axis.title = element_text(face = "bold"), legend.title = element_text(face = "bold"))
+```
+
+<br></br>
+
+```{r, fig.align = 'center'}
+networks.channel.occupancy.by_network <- networks %>% group_by(Channel, Network.Name, Width) %>% count()
+networks.channel.occupancy.by_network <- networks.channel.occupancy.by_network[order(-networks.channel.occupancy.by_network$n),]
+ggplot(data = networks.channel.occupancy.by_network) +
+  geom_col(aes(x=reorder(Channel, -n, sum), y=n, fill = Width), position = "stack") +
+  geom_text(data=totals,aes(x=Channel, y=(total + 0.2), label = total)) +
+  labs(title = "Channel Occupancy", subtitle = "Figure 1.c:") +
+  xlab("Channels") +
+  scale_fill_discrete(name = "Channel Width", labels = c("20Mhz", "40Mhz", "80Mhz")) +
+  ylab("Total (n)") +
+  theme(plot.title = element_text(hjust = 0.5, margin = ggplot2::margin(b=20), face = "bold", size = 20), plot.caption = element_text(hjust = 0, size = 10, margin = ggplot2::margin(t=20)), axis.title = element_text(face = "bold"), legend.title = element_text(face = "bold"))
+```
+
+<br></br>
+
+```{r, message = FALSE, error = FALSE}
+networks.channel.count <- networks %>% group_by(Network.Name) %>% count()
+networks.channel.count <- networks.channel.count[order(-networks.channel.count$n),]
+```
+
+<br></br>
+
+<p>
+Looking at <i>Figure 1.a</i> there is clearing a lot of communications traffic occuring across the measurement zones - with channels 1, 11, and 149 seeing >7 broadcasting BSSID's on their respective channels. Breaking this down further in <i>Figure 1.b</i> we see that many individual networks are inefficiently broadcasting on busy channels - with channel 1 and 149 seeing a large amount of overlap in the 20Mhz and 80Mhz bands as illustrated in<i>Figure 1.c</i>.
+
+From <i>Table A</i> we know that our <b>BDAC (2.4Ghz)</b> network occupies two slots in channel 6 and four slots in channel 36, combining this information with the above <i>Figures</i>, we can confirm that our network has chosen relatively low traffic channel bands to operate within.
+</p>
+
+
+<br></br>
+<hr>
+<h4>Interference and Signal Strength</h4>
+<br></br>
+
+```{r, fig.align = 'center', fig.height = 10, fig.width = 10}
+wifi_scan %>%
+  ggplot(mapping =aes(x=reorder(Location, -RSSI, mean), y=2*(100+RSSI), fill = Channel)) +
+  facet_wrap(~Network.Name) +
+  geom_bar(position = "dodge", stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Interference and Signal Strength", subtitle = "Figure 2.a: Signal Quality of local networks, calculated from RSSI measurement.") +
+  xlab("Locations") +
+  scale_fill_discrete(name = "Wi-Fi Channel") +
+  ylab("Signal Quality") +
+  theme(plot.title = element_text(hjust = 0.5, margin = ggplot2::margin(b=20), face = "bold", size = 20), plot.caption = element_text(hjust = 0, size = 10, margin = ggplot2::margin(t=20)), axis.title = element_text(face = "bold"), legend.title = element_text(face = "bold"))
+```
+<br></br>
+
+```{r, fig.align = 'center', fig.height = 10, fig.width = 10}
+wifi_scan %>%
+  ggplot(mapping =aes(x=reorder(Location, -RSSI, mean), y=(RSSI), fill = Channel)) +
+  facet_wrap(~Network.Name) +
+  geom_bar(position = "dodge", stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Interference and Signal Strength", subtitle = "Figure 2.b: RSSI measurements of local networks.") +
+  xlab("Locations") +
+  scale_fill_discrete(name = "Wi-Fi Channel") +
+  ylab("RSSI Measurement (dBm)") +
+  theme(plot.title = element_text(hjust = 0.5, margin = ggplot2::margin(b=20), face = "bold", size = 20), plot.caption = element_text(hjust = 0, size = 10, margin = ggplot2::margin(t=20)), axis.title = element_text(face = "bold"), legend.title = element_text(face = "bold"))
+```
+<br></br>
+
+
+<br></br>
+<p>
+There is very obvious signal attenuation across the networks studied in this report. Understanding the materials located at the location of each scan allows for better understanding of the RSSI measurements of each network, and can be used to easily infer which channels are likely to be occupied by 5Ghz band communications, and which are more likely to be 2.4Ghz channels.
+
+For example, within the <b><i>Study</i></b> location we can interpret the interference difference between brick material versus air. Comparing the <b>BDAC (2.4Ghz)</b> and <b>Lolas House</b> networks there is significant difference in the Received Signal Strength Indicator (RSSI) score for both networks.
+
+For <b>BDAC (2.4Ghz)</b> we notice two channels (Channel 36 and Channel 6) measuring RSSI scores of -35dBm and -32dBm which is near 100% signal strength. In this location there is a 2-metre air gap between the AP and the measurement location; this is the optimal baseline for the <b>BDAC (2.4Ghz)</b> network.
+
+Looking at the 5-channel <b>Lolas House</b> network next, here a solid partition brick wall separates the AP location and measurement. This measurement suggests 2 longer wavelength (2.4Ghz) channels operating in channel 1 and 11, and 3 shorter wavelength (5Ghz) channels operating overlapped on channels 11 and 149. Low frequency communications suffer less interference when passing through solid materials - for this reason two of the <b>Lolas House</b> channels pass through the brick wall still receiving approx. -60dBm measurements, whilst the 3 other 5Ghz channels all suffered significant lower quality readings at approx. -90dBm.
+
+
+</p>
+<br></br>
+
+<br></br>
+<hr>
+<h4>Coverage</h4>
+<br></br>
+
+```{r, fig.align = 'center', fig.height = 10, fig.width = 10}
+wifi_scan %>% filter(Network.Name == "BDAC (2.4Ghz)" | Network.Name == "Lolas House" | Network.Name == "Howe Street Hoes" | Network.Name == "Howe Street Hoes (5G)") %>%
+  ggplot(mapping =aes(x=reorder(Location, -RSSI, mean), y=(RSSI), fill = Channel)) +
+  geom_text(aes(x=reorder(Location, -RSSI, mean), y= (RSSI-5), label = RSSI), position = position_dodge(width = 0.9), size = 2) +
+  facet_wrap(~Network.Name) +
+  geom_bar(position = "dodge", stat = "identity") +
+  geom_point(aes(x=reorder(Location, -RSSI, mean), y= RSSI), position = position_dodge(width = 0.9), colour = "black", size = 1, alpha=0.5, show.legend = F) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Interference and Signal Strength", subtitle = "Figure 3: RSSI measurements of local networks.") +
+  xlab("Locations") +
+  scale_fill_discrete(name = "Wi-Fi Channel") +
+  ylab("RSSI (dBm)") +
+  theme(plot.title = element_text(hjust = 0.5, margin = ggplot2::margin(b=20), face = "bold", size = 20), plot.caption = element_text(hjust = 0, size = 10, margin = ggplot2::margin(t=20)), axis.title = element_text(face = "bold"), legend.title = element_text(face = "bold"))
+
+```
+
+<br></br>
+<p>
+For the <b>BDAC (2.4Ghz)</b> network the AP coverages a sufficient amount of the desired area, given the constraints of NBN coaxial port access. However, in the future a second AP may be obtained to cover weaker reception in the backyard area of the house - particularly for the higher frequency 5Ghz communications which would benefit the gaming and streaming devices in that area of the house.
+
+The <b>Howe Street</b> network currently operates on the channel 149 80Mhz band which sees significant traffic from other networks, this network would benefit from changing to a less congested Wi-Fi channel. The 2.4Ghz channel sees sharper drops in signal strength in comparison to other local networks, this suggests poor indoor placement or quality of the AP. Furthermore, this network operates on only 2 Wi-Fi channels, this is low for an area that sees many networks broadcasting on between 4 - 6 Wi-Fi channels simultaneously. This again suggests a basic featured Access Point.
+
+Lastly, <b>Lolas House</b> network performs well in the 2.4Ghz bands with average signal strength in most scanned locations. Notably, there appears to be better coverage in the <i>Upstairs Back</i> location and within another 2.4Ghz band channel (channel 11). This suggests the prescence of a WiFi repeater AP upstairs, which is reinfored by the prescence of channel 1 communications which is often used as a wireless mesh backhaul channel.
+</p>
+
+<br></br>
+<hr>
+<h4>Speed Tests</h4>
+<br></br>
+
+```{r}
+speedtests <- as.data.frame(rbind(
+c("Study",11,20.58, 3.93),
+c("Garage",10,19.67, 4.14),
+c("Front",11,12.41, 2.54),
+c("Bedroom",10,20.43, 3.96),
+c("Side",11,3.83, 4.33),
+c("Upstairs Mid",11,18.31, 4.09),
+c("Upstairs Back",11,18.18, 3.64),
+c("Loungeroom",11,18.08, 4.30),
+c("Backyard",11,16.74, 4.01)
+))
+colnames(speedtests) <- c("Location", "Ping", "Download", "Upload")
+speedtests$Location <- as.factor(speedtests$Location)
+speedtests$Download <- as.numeric(speedtests$Download)
+speedtests$Upload <- as.numeric(speedtests$Upload)
+speedtests$Ping <- as.numeric(speedtests$Ping)
+
+speedtests <- speedtests %>% gather("Type", "Value", 2:4)
+speedtests$Type <- as.factor(speedtests$Type)
+```
+<br></br>
+
+```{r, fig.align = 'center', fig.height = 10, fig.width = 14}
+ggplot(data=speedtests) +
+    geom_line(aes(x=Location, y=Value, colour = Type, group = Type), size = 2) +
+    scale_y_continuous(sec.axis = sec_axis((~.*1),name="Speed (ms)")) +
+    labs(title = "Network Speedtest", subtitle = "Figure 4: Network speedtests of the BDAC (2.4Ghz) network.") +
+    theme(plot.title = element_text(hjust = 0.5, margin = ggplot2::margin(b=20), face = "bold", size = 20), plot.caption = element_text(hjust = 0, size = 10, margin = ggplot2::margin(t=20)), axis.title = element_text(face = "bold"), legend.title = element_text(face = "bold"))
+
+```
+
+
+<br></br>
+<hr>
+<h2> Appendix: Tables</h2>
+<br></br>
+
+```{r, message = FALSE, error = FALSE}
+library("kableExtra")
+side[order(-side$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 1: Side") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
+<br></br>
+
+```{r, message = FALSE, error = FALSE}
+bedroom[order(-bedroom$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 2: Bedroom") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
+<br></br>
+
+```{r, message = FALSE, error = FALSE}
+study[order(-study$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 3: Study") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
+```{r, message = FALSE, error = FALSE}
+front[order(-front$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 4: Frontyard") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
+```{r, message = FALSE, error = FALSE}
+lounge_room[order(-lounge_room$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 5: Lounge Room") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
+```{r, message = FALSE, error = FALSE}
+garage[order(-garage$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 6: Garage") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
+```{r, message = FALSE, error = FALSE}
+backyard[order(-backyard$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 7: Backyard") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
+```{r, message = FALSE, error = FALSE}
+upstairs_mid[order(-upstairs_mid$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 8: Upstairs Mid") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
+```{r, message = FALSE, error = FALSE}
+upstairs_back[order(-upstairs_back$RSSI),] %>% select(-Bytes, -Country, -Length, -PH, -SWAP, -hs20, -Airport) %>% kable(row.names = F, caption = "Table 9: Upstairs Back") %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)%>% kableExtra::scroll_box(width = "100%")
+```
